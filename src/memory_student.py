@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from .config import settings
@@ -57,7 +58,24 @@ class StudentMemory:
                 scope="nodes",
                 limit=8,
             )
-        return render_graph_search(results)
+        # add_semantic_documents ingests each KB doc twice: a verbose JSON
+        # copy and a concise text summary that ends with the same literal
+        # marker. Under a tight combined budget (e.g. the "mixed" case) the
+        # JSON duplicates can crowd out a lower-ranked document entirely, so
+        # keep only the shorter text copies.
+        episodes = getattr(results, "episodes", None) or []
+        text_episodes = [
+            e for e in episodes if not (getattr(e, "content", "") or "").lstrip().startswith("{")
+        ]
+        filtered = SimpleNamespace(
+            context=getattr(results, "context", None),
+            edges=getattr(results, "edges", None),
+            episodes=text_episodes or episodes,
+            nodes=getattr(results, "nodes", None),
+            observations=getattr(results, "observations", None),
+            thread_summaries=getattr(results, "thread_summaries", None),
+        )
+        return render_graph_search(filtered)
 
     def assemble_context(self, layers: dict[str, str]) -> tuple[str, dict[str, dict[str, int]]]:
         return self.budget.assemble(layers)
