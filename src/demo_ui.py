@@ -39,6 +39,19 @@ from src.short_term import ShortTermMemory
 from src.utils import GOLDEN_PATH, load_dataset, load_json
 from src.zep_common import get_zep_client
 
+LAYER_KEYS = ("short_term", "long_term", "episodic", "semantic")
+
+
+def _find_session_messages(case: dict[str, Any]) -> list[dict[str, str]]:
+    dataset = load_dataset()
+    for user in dataset["users"]:
+        if user["user_id"] != case.get("user_id"):
+            continue
+        for session in user.get("sessions", []):
+            if session["thread_id"] == case.get("thread_id"):
+                return session.get("messages", [])
+    return []
+
 LAYER_COLORS = {
     "short_term": "#2563eb",
     "long_term": "#059669",
@@ -107,8 +120,32 @@ def retrieve_for_case(
       * Keep user_id and thread_id from the loaded case.
       * Finish with memory.assemble_context(layers).
     """
-    _ = (memory, case, extra_messages, settings, ShortTermMemory)
-    raise NotImplementedError("BONUS TODO: run student retrieval for the loaded case")
+    short_term = ShortTermMemory(strategy="sliding", max_recent_messages=6, pressure_tokens=450)
+    fixture_messages = case.get("fixture_messages") or _find_session_messages(case)
+    for msg in fixture_messages:
+        short_term.add(msg["role"], msg["content"])
+    for msg in extra_messages:
+        short_term.add(msg["role"], msg["content"])
+
+    layers: dict[str, str] = {key: "" for key in LAYER_KEYS}
+    layers["short_term"] = short_term.render()
+
+    expected_layer = case.get("expected_layer", "")
+    wanted = case.get("retrieve_layers") or (
+        ["long_term", "semantic"] if expected_layer == "mixed" else [expected_layer]
+    )
+
+    if "long_term" in wanted:
+        layers["long_term"] = memory.retrieve_long_term(
+            user_id=case["user_id"], thread_id=case["thread_id"], query=case["query"]
+        )
+    if "episodic" in wanted:
+        layers["episodic"] = memory.retrieve_episodic(case["user_id"], case["query"])
+    if "semantic" in wanted:
+        layers["semantic"] = memory.retrieve_semantic(settings.semantic_graph_id, case["query"])
+
+    merged_context, budget = memory.assemble_context(layers)
+    return {"merged_context": merged_context, "layers": layers, "budget": budget}
 
 
 def main() -> None:

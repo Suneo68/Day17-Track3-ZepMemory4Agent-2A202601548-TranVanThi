@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//tmp/**)",
+      "Bash(cat /tmp/pipfull.log 2>&1; echo \"---pwd---\"; pwd)",
+      "Bash(docker run *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(cat /tmp/pipfull.log)"
+    ]
+  }
+}
